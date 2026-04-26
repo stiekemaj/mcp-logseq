@@ -32,6 +32,9 @@ else:
 
 _db_mode = os.getenv("LOGSEQ_DB_MODE", "").lower() in ("1", "true", "yes")
 _exclude_tags: list[str] = load_exclude_tags()
+_exclude_namespaces: list[str] = [
+    ns.strip() for ns in os.getenv("LOGSEQ_EXCLUDE_NAMESPACES", "").split(",") if ns.strip()
+]
 
 
 def _make_api() -> logseq.LogSeq:
@@ -82,8 +85,22 @@ def _extract_tags(properties: dict) -> list[str]:
     return []
 
 
+def _is_namespace_excluded(page_name: str) -> bool:
+    """Return True if the page name belongs to an excluded namespace."""
+    if not _exclude_namespaces:
+        return False
+    name_lower = page_name.lower()
+    return any(
+        name_lower == ns.lower() or name_lower.startswith(ns.lower() + "/")
+        for ns in _exclude_namespaces
+    )
+
+
 def _is_page_excluded(page: dict, exclude_tags: list[str]) -> bool:
-    """Return True if the page has any tag in exclude_tags."""
+    """Return True if the page is in an excluded namespace or has an excluded tag."""
+    name = page.get("originalName") or page.get("name") or ""
+    if _is_namespace_excluded(name):
+        return True
     if not exclude_tags:
         return False
     props = page.get("properties") or {}
@@ -1352,6 +1369,11 @@ class GetPagesFromNamespaceToolHandler(ToolHandler):
         if "namespace" not in args:
             raise RuntimeError("namespace argument required")
 
+        if _is_namespace_excluded(args["namespace"]):
+            raise RuntimeError(
+                f"Access denied: namespace '{args['namespace']}' is restricted."
+            )
+
         try:
             api = _make_api()
             result = api.get_pages_from_namespace(args["namespace"])
@@ -1404,6 +1426,11 @@ class GetPagesTreeFromNamespaceToolHandler(ToolHandler):
     def run_tool(self, args: dict) -> list[TextContent]:
         if "namespace" not in args:
             raise RuntimeError("namespace argument required")
+
+        if _is_namespace_excluded(args["namespace"]):
+            raise RuntimeError(
+                f"Access denied: namespace '{args['namespace']}' is restricted."
+            )
 
         try:
             api = _make_api()
