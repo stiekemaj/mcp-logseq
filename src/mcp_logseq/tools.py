@@ -417,7 +417,7 @@ class GetPageContentToolHandler(ToolHandler):
                 ]
 
             # Security: block access to excluded pages — fail loudly
-            if _exclude_tags and _is_page_excluded(result.get("page", {}), _exclude_tags):
+            if _is_page_excluded(result.get("page", {}), _exclude_tags):
                 raise RuntimeError(
                     f"Access denied: page '{args['page_name']}' is restricted "
                     f"and cannot be read by this assistant."
@@ -807,6 +807,16 @@ class GetBlockToolHandler(ToolHandler):
             api = _make_api()
             result = api.get_block(block_uuid, include_children=include_children)
 
+            # Security: check if block belongs to an excluded namespace
+            if _exclude_namespaces:
+                page_id = (result.get("page") or {}).get("id")
+                if page_id:
+                    page_name = api.get_page_name_by_id(page_id)
+                    if page_name and _is_namespace_excluded(page_name):
+                        raise RuntimeError(
+                            f"Access denied: block '{block_uuid}' belongs to a restricted page."
+                        )
+
             if output_format == "json":
                 return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
@@ -884,12 +894,12 @@ class SearchToolHandler(ToolHandler):
 
     @staticmethod
     def _build_excluded_page_names(api, exclude_tags: list[str]) -> set[str]:
-        """Return lowercased names of pages that have excluded tags.
+        """Return lowercased names of pages that have excluded tags or are in excluded namespaces.
 
         Makes one extra api.list_pages() call. Fails open on error to avoid
-        breaking search entirely when exclude_tags is configured.
+        breaking search entirely when exclusions are configured.
         """
-        if not exclude_tags:
+        if not exclude_tags and not _exclude_namespaces:
             return set()
         try:
             pages = api.list_pages()
@@ -979,14 +989,17 @@ class SearchToolHandler(ToolHandler):
 
         if include_blocks and result.get("blocks"):
             blocks = result["blocks"]
-            parts.append(f"## Content Blocks ({len(blocks)} found)")
-            for i, block in enumerate(blocks[:limit]):
-                content = block.get("block/content", "").strip()
-                if content:
-                    if len(content) > 150:
-                        content = content[:150] + "..."
-                    parts.append(f"{i + 1}. {content}")
-            parts.append("")
+            if not excluded_page_names:
+                # Only show content blocks when no exclusion is active — blocks carry no
+                # page identifier so we cannot verify they are safe to show
+                parts.append(f"## Content Blocks ({len(blocks)} found)")
+                for i, block in enumerate(blocks[:limit]):
+                    content = block.get("block/content", "").strip()
+                    if content:
+                        if len(content) > 150:
+                            content = content[:150] + "..."
+                        parts.append(f"{i + 1}. {content}")
+                parts.append("")
 
         if include_pages and result.get("pages-content"):
             snippets = result["pages-content"]
@@ -1188,14 +1201,13 @@ class QueryToolHandler(ToolHandler):
                     continue
                 filtered_results.append(item)
 
-            # Security: filter page objects with excluded tags
-            if _exclude_tags:
-                exclude_filtered = []
-                for item in filtered_results:
-                    if self._is_page(item) and _is_page_excluded(item, _exclude_tags):
-                        continue
-                    exclude_filtered.append(item)
-                filtered_results = exclude_filtered
+            # Security: filter page objects with excluded tags or namespaces
+            exclude_filtered = []
+            for item in filtered_results:
+                if self._is_page(item) and _is_page_excluded(item, _exclude_tags):
+                    continue
+                exclude_filtered.append(item)
+            filtered_results = exclude_filtered
 
             if not filtered_results:
                 filter_msg = f" (filtered to {result_type})" if result_type != "all" else ""

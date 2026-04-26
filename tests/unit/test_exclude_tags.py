@@ -302,7 +302,7 @@ def test_search_filters_excluded_page_names(mock_logseq_class):
 @patch.dict("os.environ", {"LOGSEQ_API_TOKEN": "test_token"})
 @patch("mcp_logseq.tools.logseq.LogSeq")
 def test_search_no_extra_api_call_when_no_exclude_tags(mock_logseq_class):
-    """list_pages should NOT be called when _exclude_tags is empty."""
+    """list_pages should NOT be called when _exclude_tags is empty and no namespace exclusions."""
     mock_api = Mock()
     mock_api.search_content.return_value = {
         "blocks": [],
@@ -313,7 +313,8 @@ def test_search_no_extra_api_call_when_no_exclude_tags(mock_logseq_class):
     mock_logseq_class.return_value = mock_api
 
     handler = SearchToolHandler()
-    with patch("mcp_logseq.tools._exclude_tags", []):
+    with patch("mcp_logseq.tools._exclude_tags", []), \
+         patch("mcp_logseq.tools._exclude_namespaces", []):
         handler.run_tool({"query": "test"})
 
     mock_api.list_pages.assert_not_called()
@@ -360,6 +361,102 @@ def test_search_snippets_shown_when_no_exclusion(mock_logseq_class):
         result = handler.run_tool({"query": "test"})
 
     assert "a visible snippet" in result[0].text
+
+
+@patch.dict("os.environ", {"LOGSEQ_API_TOKEN": "test_token"})
+@patch("mcp_logseq.tools.logseq.LogSeq")
+def test_search_filters_namespace_excluded_pages(mock_logseq_class):
+    """Namespace-excluded pages are filtered from search results even when _exclude_tags is empty."""
+    mock_api = Mock()
+    mock_api.list_pages.return_value = [
+        {"originalName": "private/Secret", "journal?": False, "properties": {}},
+        {"originalName": "Public Page", "journal?": False, "properties": {}},
+    ]
+    mock_api.search_content.return_value = {
+        "blocks": [],
+        "pages": ["private/Secret", "Public Page"],
+        "pages-content": [],
+        "files": [],
+    }
+    mock_logseq_class.return_value = mock_api
+
+    handler = SearchToolHandler()
+    with patch("mcp_logseq.tools._exclude_tags", []), \
+         patch("mcp_logseq.tools._exclude_namespaces", ["private"]):
+        result = handler.run_tool({"query": "test"})
+
+    text = result[0].text
+    assert "Public Page" in text
+    assert "private/Secret" not in text
+
+
+@patch.dict("os.environ", {"LOGSEQ_API_TOKEN": "test_token"})
+@patch("mcp_logseq.tools.logseq.LogSeq")
+def test_search_no_extra_api_call_when_no_exclusions(mock_logseq_class):
+    """list_pages should NOT be called when both _exclude_tags and _exclude_namespaces are empty."""
+    mock_api = Mock()
+    mock_api.search_content.return_value = {
+        "blocks": [],
+        "pages": ["Some Page"],
+        "pages-content": [],
+        "files": [],
+    }
+    mock_logseq_class.return_value = mock_api
+
+    handler = SearchToolHandler()
+    with patch("mcp_logseq.tools._exclude_tags", []), \
+         patch("mcp_logseq.tools._exclude_namespaces", []):
+        handler.run_tool({"query": "test"})
+
+    mock_api.list_pages.assert_not_called()
+
+
+@patch.dict("os.environ", {"LOGSEQ_API_TOKEN": "test_token"})
+@patch("mcp_logseq.tools.logseq.LogSeq")
+def test_search_blocks_hidden_when_namespace_exclusion_active(mock_logseq_class):
+    """Content blocks are suppressed when namespace exclusions are active (blocks have no page id)."""
+    mock_api = Mock()
+    mock_api.list_pages.return_value = [
+        {"originalName": "private/Secret", "journal?": False, "properties": {}},
+    ]
+    mock_api.search_content.return_value = {
+        "blocks": [{"block/content": "some block content"}],
+        "pages": [],
+        "pages-content": [],
+        "files": [],
+    }
+    mock_logseq_class.return_value = mock_api
+
+    handler = SearchToolHandler()
+    with patch("mcp_logseq.tools._exclude_tags", []), \
+         patch("mcp_logseq.tools._exclude_namespaces", ["private"]):
+        result = handler.run_tool({"query": "test"})
+
+    assert "some block content" not in result[0].text
+
+
+@patch.dict("os.environ", {"LOGSEQ_API_TOKEN": "test_token"})
+@patch("mcp_logseq.tools.logseq.LogSeq")
+def test_search_snippets_hidden_when_namespace_exclusion_active(mock_logseq_class):
+    """Page snippets are suppressed when namespace exclusions are active."""
+    mock_api = Mock()
+    mock_api.list_pages.return_value = [
+        {"originalName": "private/Secret", "journal?": False, "properties": {}},
+    ]
+    mock_api.search_content.return_value = {
+        "blocks": [],
+        "pages": [],
+        "pages-content": [{"block/snippet": "secret snippet text"}],
+        "files": [],
+    }
+    mock_logseq_class.return_value = mock_api
+
+    handler = SearchToolHandler()
+    with patch("mcp_logseq.tools._exclude_tags", []), \
+         patch("mcp_logseq.tools._exclude_namespaces", ["private"]):
+        result = handler.run_tool({"query": "test"})
+
+    assert "secret snippet text" not in result[0].text
 
 
 # =============================================================================
