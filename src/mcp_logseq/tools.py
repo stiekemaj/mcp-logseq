@@ -884,12 +884,12 @@ class SearchToolHandler(ToolHandler):
 
     @staticmethod
     def _build_excluded_page_names(api, exclude_tags: list[str]) -> set[str]:
-        """Return lowercased names of pages that have excluded tags.
+        """Return lowercased names of pages that have excluded tags or are in excluded namespaces.
 
         Makes one extra api.list_pages() call. Fails open on error to avoid
-        breaking search entirely when exclude_tags is configured.
+        breaking search entirely when exclusions are configured.
         """
-        if not exclude_tags:
+        if not exclude_tags and not _exclude_namespaces:
             return set()
         try:
             pages = api.list_pages()
@@ -979,14 +979,17 @@ class SearchToolHandler(ToolHandler):
 
         if include_blocks and result.get("blocks"):
             blocks = result["blocks"]
-            parts.append(f"## Content Blocks ({len(blocks)} found)")
-            for i, block in enumerate(blocks[:limit]):
-                content = block.get("block/content", "").strip()
-                if content:
-                    if len(content) > 150:
-                        content = content[:150] + "..."
-                    parts.append(f"{i + 1}. {content}")
-            parts.append("")
+            if not excluded_page_names:
+                # Only show content blocks when no exclusion is active — blocks carry no
+                # page identifier so we cannot verify they are safe to show
+                parts.append(f"## Content Blocks ({len(blocks)} found)")
+                for i, block in enumerate(blocks[:limit]):
+                    content = block.get("block/content", "").strip()
+                    if content:
+                        if len(content) > 150:
+                            content = content[:150] + "..."
+                        parts.append(f"{i + 1}. {content}")
+                parts.append("")
 
         if include_pages and result.get("pages-content"):
             snippets = result["pages-content"]
