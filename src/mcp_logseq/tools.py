@@ -807,6 +807,16 @@ class GetBlockToolHandler(ToolHandler):
             api = _make_api()
             result = api.get_block(block_uuid, include_children=include_children)
 
+            # Security: check if block belongs to an excluded namespace
+            if _exclude_namespaces:
+                page_id = (result.get("page") or {}).get("id")
+                if page_id:
+                    page_name = api.get_page_name_by_id(page_id)
+                    if page_name and _is_namespace_excluded(page_name):
+                        raise RuntimeError(
+                            f"Access denied: block '{block_uuid}' belongs to a restricted page."
+                        )
+
             if output_format == "json":
                 return [TextContent(type="text", text=json.dumps(result, indent=2))]
 

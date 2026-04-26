@@ -975,6 +975,17 @@ class LogSeq:
             logger.error(f"Error getting block '{block_uuid}': {str(e)}")
             raise
 
+    def get_page_name_by_id(self, page_id: int) -> str | None:
+        """Return the original page name for a numeric page entity ID, or None if not found."""
+        query = f'[:find ?name :where [{page_id} :block/original-name ?name]]'
+        try:
+            result = self.datascript_query(query)
+            if result and result[0]:
+                return str(result[0][0])
+        except Exception as e:
+            logger.warning(f"Could not resolve page name for id {page_id}: {e}")
+        return None
+
     def resolve_page_uuids(self, uuids: list[str]) -> dict[str, str]:
         """Resolve a list of page UUIDs to their human-readable names.
 
