@@ -417,7 +417,7 @@ class GetPageContentToolHandler(ToolHandler):
                 ]
 
             # Security: block access to excluded pages — fail loudly
-            if _exclude_tags and _is_page_excluded(result.get("page", {}), _exclude_tags):
+            if _is_page_excluded(result.get("page", {}), _exclude_tags):
                 raise RuntimeError(
                     f"Access denied: page '{args['page_name']}' is restricted "
                     f"and cannot be read by this assistant."
@@ -1191,14 +1191,13 @@ class QueryToolHandler(ToolHandler):
                     continue
                 filtered_results.append(item)
 
-            # Security: filter page objects with excluded tags
-            if _exclude_tags:
-                exclude_filtered = []
-                for item in filtered_results:
-                    if self._is_page(item) and _is_page_excluded(item, _exclude_tags):
-                        continue
-                    exclude_filtered.append(item)
-                filtered_results = exclude_filtered
+            # Security: filter page objects with excluded tags or namespaces
+            exclude_filtered = []
+            for item in filtered_results:
+                if self._is_page(item) and _is_page_excluded(item, _exclude_tags):
+                    continue
+                exclude_filtered.append(item)
+            filtered_results = exclude_filtered
 
             if not filtered_results:
                 filter_msg = f" (filtered to {result_type})" if result_type != "all" else ""
